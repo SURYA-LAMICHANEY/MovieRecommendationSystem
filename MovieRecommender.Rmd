@@ -1,0 +1,554 @@
+---
+title: "MovieRecommender"
+author: "Surya Lamichaney"
+date: "09/04/2021"
+output: html_document
+editor_options: 
+  chunk_output_type: console
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+#Setting the working directory path
+setwd("C:/Users/Sikkim/Desktop/RecommendationSystem/MovieRecommendationSystem/ ")
+```
+```{r}
+#Loading the required libraries
+library(recommenderlab)
+library(ggplot2)
+library(data.table)
+library(reshape)
+```
+
+```{r}
+#Loading the datasets
+movies<-read.csv("movies.csv")
+ratings<-read.csv("ratings.csv")
+head(movies)
+head(ratings)
+```
+
+```{r}
+#6 point summary of movies data
+summary(movies)
+```
+```{r}
+#6 point summary of ratings data
+summary(ratings)
+```
+==========================DATA PRE-PROCESSING=========================
+
+```{r}
+#Extracting a list of genres
+genres<-as.data.frame(movies$genres, stringsAsFactors = FALSE)
+newgenres<-as.data.frame(tstrsplit(genres[,1], '[|]',
+                                   type.convert= TRUE),
+                         stringsAsFactors=FALSE)
+colnames(newgenres)<-c(1:10)
+
+genrelist<-c("Action", "Adventure", "Animation", "Children", 
+                "Comedy", "Crime","Documentary", "Drama", "Fantasy",
+                "Film-Noir", "Horror", "Musical", "Mystery","Romance",
+                "Sci-Fi", "Thriller", "War", "Western")
+
+genrematrix<-matrix(0,10330,18)
+genrematrix[1,]<-genrelist
+colnames(genrematrix)<-genrelist
+genrematrix
+```
+
+```{r}
+#Iterate through the matrix
+for(i in 1:nrow(newgenres)){
+  for(j in 1:ncol(newgenres)){
+    genmat_col=which(genrematrix[1,] == newgenres[i,j])
+    genrematrix[i+1,genmat_col] <- 1
+  }
+}
+```
+
+```{r}
+#Convert into dataframe
+genrematrix2<-as.data.frame(genrematrix[-1,],stringsAsFactors=FALSE)
+for(j in 1:ncol(genrematrix2)){
+  genrematrix2[,j]<-as.integer(genrematrix2[,j])
+}
+head(genrematrix2)
+```
+
+```{r}
+#Creating a matrix to search for a movie by genre
+searchmatrix<-cbind(movies[,1:2],genrematrix2)
+head(searchmatrix)
+```
+
+```{r}
+#Converting ratings matrix in a proper format
+ratingmatrix<-reshape2::dcast(ratings,userId~movieId, value.var = "rating", na.rm=FALSE)
+ratingmatrix<-as.matrix(ratingmatrix[,-1])
+ratingmatrix<-as(ratingmatrix,"realRatingMatrix")
+ratingmatrix
+```
+```{r}
+#Exploring the parameters of recommendation models
+recommenderModels<-recommenderRegistry$get_entries(dataType= "realRatingMatrix")
+names(recommenderModels)
+lapply(recommenderModels, "[[", "description")
+recommenderModels$IBCF_realRatingMatrix$parameters
+recommenderModels$UBCF_realRatingMatrix$parameters
+```
+```{r}
+#Exploring similarity data
+similarityUsers<-similarity(ratingmatrix[1:4,],
+                            method="cosine",
+                            which="users")
+as.matrix(similarityUsers)
+image(as.matrix(similarityUsers),main="User similarity")
+```
+
+```{r}
+similarityMovies<-similarity(ratingmatrix[,1:4], method="cosine",which="items")
+as.matrix(similarityMovies)
+image(as.matrix(similarityMovies),main="Movies similarity")
+```
+
+```{r}
+#Classifying the ratings and counting them
+vectorRatings<-as.vector(ratingmatrix@data)
+unique(vectorRatings)
+
+tableRatings<-table(vectorRatings)
+tableRatings
+```
+=======================Distribution of Ratings=======================
+```{r}
+#Removing 0 ratings because 0 means missing value
+vectorRatings<-vectorRatings[vectorRatings!=0]
+vectorRatings<-factor(vectorRatings)
+
+qplot(vectorRatings)+ggtitle("Distribution of Ratings")
+```
+
+```{r}
+#Most watched movies
+viewsPerMovies<-colCounts(ratingmatrix)
+tableViews<-data.frame(movie= names(viewsPerMovies),
+                       views=viewsPerMovies)
+tableViews<-tableViews[order(tableViews$views,decreasing = TRUE),]
+tableViews$title<-NA
+
+for(i in 1:10325){
+  tableViews[i,3]<-as.character(subset(movies,movies$movieId==tableViews[i,1])$title)
+                 }
+  tableViews[1:6,]
+
+```
+
+```{r}
+#Plot of most viewed movies
+ggplot(tableViews[1:6,],aes(x=title,y=views))+
+  geom_bar(stat = "identity")+
+  theme(axis.text.x = element_text(angle = 45,hjust=1))+
+  ggtitle("Number of views of top movies")
+```
+
+```{r}
+#Distribution of the average movie rating
+averageRatings<-colMeans(ratingmatrix)
+qplot(averageRatings)+
+  stat_bin(binwidth = 0.1) +
+  ggtitle("Distribution of the average movie ratings")
+```
+
+```{r}
+#Distribution of the average movie rating after removing outliers
+averageRatingsRelevant<-averageRatings[viewsPerMovies>50]
+qplot(averageRatingsRelevant)+stat_bin(binwidth = 0.1)+
+  ggtitle(paste("Distributions of the relevant average ratings"))
+```
+
+```{r}
+#Heatmap for rating matrix
+image(ratingmatrix[1:20,1:25],main="Heatmap of first 20 rows and 25 columns of rating matrix")
+```
+
+```{r}
+#Finding min no. of movies/user and min no. of users/movie
+minMovies<-quantile(rowCounts(ratingmatrix),0.99)
+minUsers<-quantile(colCounts(ratingmatrix),0.99)
+print("Minimum number of movies per user:")
+minMovies
+print("Minimum number of users per movie:")
+minUsers
+```
+
+```{r}
+#Heatmap of top users and movies
+image(ratingmatrix[rowCounts(ratingmatrix)>minMovies,
+                   colCounts(ratingmatrix)>minUsers],
+      main="heatmap of top movies and users")
+```
+
+=====================PREPARING DATA FOR MODELS========================
+```{r}
+#Selecting relevant data
+ratingsMovies<-ratingmatrix[rowCounts(ratingmatrix) > 50,
+                            colCounts(ratingmatrix) > 50]
+ratingsMovies
+```
+
+```{r}
+#Heatmap of top 2% users and movies from relevant data
+newMinMovies<-quantile(rowCounts(ratingsMovies),0.98)
+newMinusers<-quantile(colCounts(ratingsMovies),0.98)
+image(ratingsMovies[rowCounts(ratingsMovies) > newMinMovies,
+                    colCounts(ratingsMovies) > newMinusers],
+      main="Heatmap of top 2% users and movies")
+head.matrix(ratingsMovies)
+```
+
+```{r}
+#Distribution of average rating per user
+averageRatingsPerUser<-rowMeans(ratingsMovies)
+qplot(averageRatingsPerUser)+stat_bin(binwidth = 0.1)+
+  ggtitle("Distribution of average rating per user")
+```
+
+```{r}
+#Normalizing data
+ratingsMoviesNorm<-normalize(ratingsMovies)
+sum(rowMeans(ratingsMoviesNorm) > 0.00001)
+```
+
+```{r}
+#image(ratingsMoviesNorm[rowCounts(ratingsMoviesNorm) > minMovies,
+                       # colCounts(ratingsMoviesNorm) > minUsers],
+      #main="Heatmap of the top users and movies")
+```
+
+```{r}
+#Binarizing the data
+#Define a matrix equal to 1 if the movie has been watched
+ratingsMoviesWatched<-binarize(ratingsMovies,minRating=1)
+minMoviesBinary<-quantile(rowCounts(ratingsMovies),0.95)
+minUsersBinary<-quantile(colCounts(ratingsMovies),0.95)
+image(ratingsMoviesWatched[rowCounts(ratingsMovies) > minMoviesBinary,
+                           colCounts(ratingsMovies) > minUsersBinary], main="Heatmap of top users and movies")
+```
+
+```{r}
+#Define a matrix equal to 1 if the cell has a rating above the threshold
+ratingsMoviesGood<-binarize(ratingsMovies, minRating=3)
+image(ratingsMoviesGood[rowCounts(ratingsMovies) > minMoviesBinary,
+                        colCounts(ratingsMovies) > minUsersBinary],
+      main="Heatmap of top users and movies")
+```
+
+==========ITEM-BASED COLLABORATIVE FILTERING MODEL=============
+```{r}
+#Defining training/test sets
+whichTrain<-sample(x=c(TRUE,FALSE),
+                   size = nrow(ratingsMovies),
+                   replace=TRUE,
+                   prob = c(0.8,0.2))
+dataTrain<-ratingsMovies[whichTrain,]
+dataTest<-ratingsMovies[!whichTrain,]
+head(dataTrain)
+```
+
+```{r}
+#Building the recommender model
+recommenderModels<-recommenderRegistry$get_entries(dataType="realRatingMatrix")
+recommenderModels$IBCF_realRatingMatrix$parameters
+
+reccModel<-Recommender(data=dataTrain,
+                       method="IBCF",
+                       parameter=list(method="Cosine",k=30))
+reccModel
+```
+
+```{r}
+#Exploring the recommender model
+modelDetails<-getModel(reccModel)
+class(modelDetails$sim)
+dim(modelDetails$sim)
+
+nItemsTop<-20
+image(modelDetails$sim[1:nItemsTop, 1:nItemsTop],
+      main="Heatmap,of the first rows and columns")
+
+rowSum<-rowSums(modelDetails$sim > 0)
+table(rowSum)
+colSum<-colSums(modelDetails$sim > 0)
+qplot(colSum)+stat_bin(binwidth = 1)+ggtitle("Distribution of the column count")
+```
+
+```{r}
+#Applying recommender system on the dataset
+nRecommended<-10
+
+reccPredicted<-predict(object = reccModel,
+                       newdata=dataTest,
+                       n=nRecommended)
+reccPredicted
+```
+
+```{r}
+#Explore the results of the recommendation for the first user
+reccUser1 <- reccPredicted@items[[1]]
+moviesUser1 <- reccPredicted@itemLabels[reccUser1]
+moviesUser2 <- moviesUser1
+for (i in 1:10){
+  moviesUser2[i] <- as.character(subset(movies, 
+                                         movies$movieId == moviesUser1[i])$title)
+}
+moviesUser2
+```
+
+```{r}
+#Explore the results of the recommendation for the first user
+reccMatrix <- sapply(reccPredicted@items,                       function(x){ as.integer(colnames(ratingsMovies)[x]) }) 
+reccMatrix[,1:4]                   
+```
+
+```{r}
+#Frequency histogram for recommended movies
+numberOfItems<-factor(table(reccMatrix))
+chartTitle<-"Distriburion of the number of items for UBCF"
+qplot(numberOfItems)+ggtitle(chartTitle)
+```
+
+```{r}
+#Top movies which got recommended 
+numberOfItemsSorted<-sort(numberOfItems, decreasing = TRUE)
+numberOfItemsTop<-head(numberOfItemsSorted, n=4)
+tableTop<-data.frame(as.integer(names(numberOfItemsTop)),numberOfItemsTop)
+
+for(i in 1:4){
+  tableTop[i,1]<-as.character(subset(movies,movies$movieId==tableTop[i,1])$title)
+}
+colnames(tableTop)<-c("Movie title","No. of items")
+head(tableTop)
+```
+==================================USER-BASED COLLABORATIVE FILTERING SYSTEM===============================
+```{r}
+recommenderModels <- recommenderRegistry$get_entries(dataType ="realRatingMatrix")
+recommenderModels$UBCF_realRatingMatrix$parameters
+reccModel <- Recommender(data = dataTrain, method = "UBCF")
+reccModel
+modelDetails <- getModel(reccModel)
+#names(model_details)
+modelDetails$data
+```
+
+```{r}
+nRecommended <- 10
+reccPredicted <- predict(object = reccModel,
+                          newdata = dataTest, 
+                          n = nRecommended) 
+reccPredicted
+```
+
+```{r}
+reccMatrix <- sapply(reccPredicted@items, 
+                      function(x){ as.integer(colnames(ratingsMovies)[x]) })
+
+reccMatrix[, 1:4]
+```
+
+```{r}
+numberofitems <- factor(table(reccMatrix))
+
+chartTitle <- "Distribution of the number of items for UBCF"
+qplot(numberofitems) + ggtitle(chartTitle)
+```
+
+```{r}
+numberofitemssorted <- sort(numberofitems, decreasing = TRUE)
+numberofitemstop <- head(numberofitemssorted, n = 4)
+tableTop <- data.frame(as.integer(names(numberofitemstop)), numberofitemstop)
+
+for (i in 1:4){
+  tableTop[i,1] <- as.character(subset(movies, 
+                                         movies$movieId == tableTop[i,1])$title)
+}
+colnames(tableTop) <- c("Movie title", "No of items")
+head(tableTop)
+```
+
+
+
+=======================================EVALUATING THE RECOMMENDER SYSTEM========================
+```{r}
+#Splitting the data
+percentageTraining<-0.8
+min(rowCounts(ratingsMovies))
+itemsToKeep<-5
+ratingThreshold<-3
+nEval<-1
+
+evalSets<-evaluationScheme(data=ratingsMovies,
+                           method="split",
+                           train=percentageTraining,
+                           given=itemsToKeep,
+                           goodRating=ratingThreshold,
+                           k=nEval)
+evalSets
+
+getData(evalSets,"train")
+getData(evalSets,"known")
+getData(evalSets,"unknown")
+
+qplot(rowCounts(getData(evalSets,"unknown")))+geom_histogram(binwidth = 10)+
+  ggtitle("Unknown items by the users")
+```
+
+```{r}
+#Bootstrapping the data
+evalSets<-evaluationScheme(data=ratingsMovies,
+                           method="bootstrap",
+                           train=percentageTraining,
+                           given=itemsToKeep,
+                           goodRating=ratingThreshold,
+                           k=nEval)
+
+
+tableTrain<-table(evalSets@runsTrain[[1]])
+nRepetitions<-factor(as.vector(tableTrain))
+qplot(nRepetitions)+ggtitle("Number of repetitions in the training set")
+
+```
+
+```{r}
+#Using cross-validation to validate models
+nFold<-4
+evalSets<-evaluationScheme(data=ratingsMovies,
+                           method="cross-validation",
+                           k=nFold,
+                           given=itemsToKeep,
+                           goodRating=ratingThreshold)
+sizeSets<-sapply(evalSets@runsTrain, length)
+sizeSets
+```
+
+```{r}
+#Evaluating the ratings
+evalSets<-evaluationScheme(data=ratingsMovies,
+                           method="cross-validation",
+                           k=nFold,
+                           given=itemsToKeep,
+                           goodRating=ratingThreshold)
+modelToEvaluate<-"IBCF"
+modelParameters<-NULL
+
+evalRecommender<-Recommender(data=getData(evalSets,"train"),
+                             method=modelToEvaluate,
+                             parameter=modelParameters)
+
+itemsToRecommend<-10
+evalPrediction<-predict(object=evalRecommender,
+                        newdata=getData(evalSets,"known"),
+                        n=itemsToRecommend,
+                        type="ratings")
+
+qplot(rowCounts(evalPrediction))+
+  geom_histogram(binwidth = 10)+ggtitle("Distribution of movies per user")
+```
+
+```{r}
+evalAccuracy<-calcPredictionAccuracy(x=evalPrediction,
+                                     data=getData(evalSets,"unknown"),
+                                     byUser=TRUE)
+head(evalAccuracy)
+
+qplot(evalAccuracy[,"RMSE"])+
+  geom_histogram(binwidth = 0.1)+ggtitle("Distribution of the RMSE by user")
+```
+
+```{r}
+evalAccuracy<-calcPredictionAccuracy(x=evalPrediction,
+                                     data=getData(evalSets,"unknown"),
+                                     byUser=FALSE)
+evalAccuracy
+```
+
+```{r}
+#Evaluating the recommendations
+results<-evaluate(x=evalSets,
+                  method = modelToEvaluate,
+                  n=seq(10,100,10))
+head(getConfusionMatrix(results[[1]]))
+```
+
+```{r}
+columnsToSum<-c("TP","FP","FN","TN")
+indicesSummed<-Reduce("+",getConfusionMatrix(results))[,columnsToSum]
+head(indicesSummed)
+
+```
+```{r}
+plot(results, annotate=TRUE, main="ROC curve")
+plot(results,"prec/rec",annotate=TRUE, main="Precision-recall")
+
+```
+
+```{r}
+#Comparing models
+modelsToEvaluate<-list(
+  IBCF_cos=list(name="IBCF",
+                param=list(method="cosine")),
+  IBCF_cor=list(name="IBCF",
+                param=list(method="Jaccard")),
+  UBCF_cos=list(name="UBCF",
+                param=list(method="cosine")),
+  UBCF_cor=list(name="UBCF",
+                param=list(method="Jaccard")),
+  random=list(name="RANDOM",param=NULL)
+)
+```
+
+```{r}
+nRecommendations<-c(1, 5, seq(10, 100,10))
+listResults<- evaluate(x=evalSets,
+                       method=modelsToEvaluate,
+                       n=nRecommendations)
+
+sapply(listResults,class) =="evaluationResults"
+```
+
+```{r}
+avgMatrices<-lapply(listResults,avg)
+head(avgMatrices$IBCF_cos[,5:8])
+```
+
+```{r}
+plot(listResults,annotate=1,legend="topleft")
+title("ROC curve")
+plot(listResults,"prec/rec",annotate=1,legend="bottomright")
+title("precision-recall")
+```
+
+```{r}
+vectorK<-c(5,10,20,30,40)
+modelsToEvaluate<-lapply(vectorK, function(k){
+  list(name="IBCF",
+       param=list(method="cosine",k=k))
+})
+names(modelsToEvaluate)<-paste0("IBCF_k_",vectorK)
+```
+
+```{r}
+nRecommendations<-c(1,5,seq(10,100,10))
+listResults<-evaluate(x=evalSets,
+                      method = modelsToEvaluate,
+                      n=nRecommendations)
+plot(listResults,annotate=1,legend="topleft")
+title("ROC curve")
+
+plot(listResults,"prec/rec",annotate=1,legend="bottomright")
+title("Precision-recall")
+```
+
