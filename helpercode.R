@@ -32,7 +32,7 @@ movieRecommendation<-function(input1,input2,input3) {
   
    #Creating the recommender model
   suppressWarnings(
-  recommenderModel <- Recommender(ratingmatrix2norm, method = "UBCF",param=list(method="Cosine",nn=30)))
+  recommenderModel <- Recommender(ratingmatrix2norm, method = "UBCF",param=list(method="Jaccard",nn=30)))
   suppressDependencies(
   recom <- predict(recommenderModel,ratingmatrix2[1], n=10)) 
   recomList <- as(recom, "list")
